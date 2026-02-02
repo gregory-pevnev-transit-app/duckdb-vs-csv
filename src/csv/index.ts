@@ -3,7 +3,7 @@ import * as path from 'path';
 
 import { ItineraryTgtfs } from './itinerary-tgtfs.ts';
 
-const FEED_NAME = 'RTL';
+const FEED_NAME = 'VICMBAU';
 
 const WORKDIR_PATH = path.resolve('workspace');
 

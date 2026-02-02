@@ -2,7 +2,8 @@
   "name": "benchmarks-2",
   "type": "module",
   "scripts": {
-    "process-csv": "node ./src/csv/index.ts"
+    "process-csv": "node ./src/csv/index.ts",
+    "process-duckdb": "node ./src/duckdb/index.ts"
   },
   "dependencies": {
     "@duckdb/node-api": "^1.4.4-r.1",
