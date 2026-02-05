@@ -1,6 +1,7 @@
 import { z } from "zod/v4";
 import { BIKES_ALLOWED, DIRECTION_ARROW, WHEELCHAIR_ACCESSIBLE } from "./csv/tgtfs-types/trip.ts";
 import { toJsonObjectFromString } from "./csv/helpers/serializers.ts";
+import { DuckDBAppender, type DuckDBType, FLOAT, INTEGER, LIST, VARCHAR } from "@duckdb/node-api";
 
 const tripDef = z.object({
   trip_id: z.string().min(1),
@@ -81,7 +82,7 @@ function zodTableDefToDuckdbColumns(def: z.ZodObject): string {
   return Object.entries(def.shape).map(([key, schema]) => `${key} ${zodTypeToDuckDbType(schema)}`).join(',\n')
 }
 
-function zodTableDefToDuckdbCreateTable(def: z.ZodObject, name: string): string {
+export function zodTableDefToDuckdbCreateTable(def: z.ZodObject, name: string): string {
   return `CREATE TABLE ${name} (${zodTableDefToDuckdbColumns(def)});`
 }
 
@@ -97,4 +98,49 @@ function zodTableDefToReadCsv(def: z.ZodObject, path: string, name: string): str
   return `SELECT * FROM read_csv('${path}', columns={${zodTableDefToReadCsvTypes(def)}}, header = true);`;
 }
 
-console.log(zodTableDefToDuckdbColumns(tripDef))
+function zodTypeToDuckDbAppender(schema: z.core.$ZodType): ['appendVarchar'] | ['appendInteger'] | ['appendFloat'] | ['appendList', DuckDBType] {
+  if (schema instanceof z.ZodString || schema instanceof z.ZodEnum) {
+    return ['appendVarchar'];
+  }
+  if (schema instanceof z.ZodOptional) {
+    return zodTypeToDuckDbAppender(schema._zod.def.innerType)
+  }
+  if (schema instanceof z.ZodDefault) {
+    return zodTypeToDuckDbAppender(schema._zod.def.innerType);
+  }
+  if (schema instanceof z.ZodNumber) {
+    const format = schema._zod.bag.format;
+    if (typeof format === "string" && format.includes("int")) return ['appendInteger'];
+    return ['appendFloat'];
+  }
+  if (schema instanceof z.ZodPipe) {
+    return zodTypeToDuckDbAppender(schema._zod.def.out);
+  }
+  if (schema instanceof z.ZodArray) {
+    // Only support one-nested arrays for GTFS purposes.
+    const innerType = schema._zod.def.element;
+    if (innerType instanceof z.ZodNumber) {
+      const format = innerType._zod.bag.format;
+      if (typeof format === "string" && format.includes("int")) return ['appendList', LIST(INTEGER)];
+      return ['appendList', LIST(FLOAT)];
+    }
+    if (innerType instanceof z.ZodString) {
+      return ['appendList', LIST(VARCHAR)];
+    }
+    throw new Error('Only string or number arrays are supported.')
+  }
+  throw new Error('Unsupported zod type found in tGTFS schema.')
+}
+
+export function zodTableDefToDuckdbAppenderMap(def: z.ZodObject) {
+  return Object.values(def.shape).map((schema) => {
+    const [specificAppender, ...args] = zodTypeToDuckDbAppender(schema);
+    return (appender: DuckDBAppender, val: unknown) => {
+      if (val == null) appender.appendNull();
+      else appender[specificAppender](val, ...args)
+    }
+});
+}
+
+export const tripsDuckDbTableDef = zodTableDefToDuckdbCreateTable(tripDef, 'trips');
+export const tripsDuckdbAppender = zodTableDefToDuckdbAppenderMap(tripDef);
