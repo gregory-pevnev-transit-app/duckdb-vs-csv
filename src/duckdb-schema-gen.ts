@@ -98,7 +98,7 @@ function zodTableDefToReadCsv(def: z.ZodObject, path: string, name: string): str
   return `SELECT * FROM read_csv('${path}', columns={${zodTableDefToReadCsvTypes(def)}}, header = true);`;
 }
 
-function zodTypeToDuckDbAppender(schema: z.core.$ZodType): ['appendVarchar'] | ['appendInteger'] | ['appendFloat'] | ['appendList', DuckDBType] {
+function zodTypeToDuckDbAppender(schema: z.core.$ZodType): ['appendVarchar' | 'appendInteger' | 'appendFloat'] | ['appendVarchar', true] {
   if (schema instanceof z.ZodString || schema instanceof z.ZodEnum) {
     return ['appendVarchar'];
   }
@@ -117,6 +117,7 @@ function zodTypeToDuckDbAppender(schema: z.core.$ZodType): ['appendVarchar'] | [
     return zodTypeToDuckDbAppender(schema._zod.def.out);
   }
   if (schema instanceof z.ZodArray) {
+    return ['appendVarchar', true];
     // Only support one-nested arrays for GTFS purposes.
     const innerType = schema._zod.def.element;
     if (innerType instanceof z.ZodNumber) {
@@ -134,10 +135,10 @@ function zodTypeToDuckDbAppender(schema: z.core.$ZodType): ['appendVarchar'] | [
 
 export function zodTableDefToDuckdbAppenderMap(def: z.ZodObject) {
   return Object.values(def.shape).map((schema) => {
-    const [specificAppender, ...args] = zodTypeToDuckDbAppender(schema);
+    const [specificAppender, stringify] = zodTypeToDuckDbAppender(schema);
     return (appender: DuckDBAppender, val: unknown) => {
       if (val == null) appender.appendNull();
-      else appender[specificAppender](val, ...args)
+      else appender[specificAppender](stringify ? JSON.stringify(val) : val);
     }
 });
 }
